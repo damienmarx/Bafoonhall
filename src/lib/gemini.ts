@@ -155,3 +155,65 @@ export async function auditKenoSeed(seed: string) {
     return { error: e.message || "Keno audit failed", raw: e.toString() };
   }
 }
+
+export async function getThreatIntelligence(query: string) {
+  try {
+    const response = await callGeminiWithRetry({
+      model: "gemini-3-flash-preview",
+      contents: `Perform a real-time threat intelligence lookup for: "${query}". 
+      Search for:
+      1. Known malicious activity (botnets, phishing, malware distribution).
+      2. Blacklist status (Spamhaus, AlienVault, VirusTotal mentions).
+      3. Associated threat actors or campaigns.
+      4. Risk score (0-100).
+      
+      Return a JSON object with:
+      - risk_score: number
+      - status: "MALICIOUS" | "SUSPICIOUS" | "CLEAN" | "UNKNOWN"
+      - findings: string[]
+      - campaigns: string[]
+      - technical_details: string
+      - last_seen: string`,
+      config: {
+        tools: [{ googleSearch: {} }],
+        responseMimeType: "application/json",
+      },
+    });
+
+    if (!response?.text) throw new Error("Empty response from AI");
+
+    const text = response.text.replace(/```json\n?|```/g, '').trim();
+    return JSON.parse(text);
+  } catch (e: any) {
+    console.error("Threat Intel Error:", e);
+    return { error: e.message || "Threat lookup failed", raw: e.toString() };
+  }
+}
+
+export async function getLatestThreatFeed() {
+  try {
+    const response = await callGeminiWithRetry({
+      model: "gemini-3-flash-preview",
+      contents: `Fetch the latest 5-10 known malicious IPs or domains currently active in the wild (e.g., from recent security advisories, threat feeds, or news).
+      For each item, provide:
+      1. Indicator (IP or Domain).
+      2. Type (Malware, Phishing, Botnet).
+      3. Description of the threat.
+      4. Severity (High, Critical).
+      
+      Return a JSON array of objects.`,
+      config: {
+        tools: [{ googleSearch: {} }],
+        responseMimeType: "application/json",
+      },
+    });
+
+    if (!response?.text) throw new Error("Empty response from AI");
+
+    const text = response.text.replace(/```json\n?|```/g, '').trim();
+    return JSON.parse(text);
+  } catch (e: any) {
+    console.error("Threat Feed Error:", e);
+    return { error: e.message || "Failed to fetch threat feed", raw: e.toString() };
+  }
+}
