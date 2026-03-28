@@ -25,20 +25,16 @@ async function callGeminiWithRetry(params: any, maxRetries = 3) {
         error.status === "RESOURCE_EXHAUSTED";
 
       if (isRateLimit) {
-        // If we hit a rate limit, we should check if the user has selected a key.
-        // If not, we might want to inform them, but for now, we'll just retry with backoff.
         retries++;
         if (retries === maxRetries) {
           // On the last retry, if it's still a 429, we throw a special error
-          // that the UI can catch to prompt for an API key.
           throw new Error("RATE_LIMIT_EXCEEDED");
         }
-        const delay = Math.pow(2, retries) * 2000 + Math.random() * 1000;
+        // Exponential backoff with jitter
+        const delay = Math.pow(2, retries) * 3000 + Math.random() * 1000;
         console.warn(`Rate limited (429). Retry ${retries}/${maxRetries} in ${Math.round(delay)}ms...`);
         await new Promise(resolve => setTimeout(resolve, delay));
-      } else if (error.message?.includes("Requested entity was not found")) {
-        // This error can occur if the API key is invalid or the project is not found.
-        // The instructions say to reset the key selection state and prompt for a key.
+      } else if (errorMessage.includes("requested entity was not found") || errorMessage.includes("api_key_invalid")) {
         throw new Error("API_KEY_INVALID");
       } else {
         throw error;
@@ -46,6 +42,83 @@ async function callGeminiWithRetry(params: any, maxRetries = 3) {
     }
   }
   throw new Error("Max retries exceeded");
+}
+
+export async function performAdvancedOSINT(target: string, type: string) {
+  try {
+    const response = await callGeminiWithRetry({
+      model: "gemini-3.1-pro-preview",
+      contents: `
+        NIGHTFURY TRINITY PROTOCOL: QUANTUM ENTANGLEMENT SCAN
+        OPERATION: OSINT FUSION
+        TARGET: ${target} (${type})
+        
+        Perform a multi-dimensional intelligence fusion. 
+        1. Analyze behavioral patterns and psychological triggers.
+        2. Correlate identifiers across platforms (Gaming, Social, Code Repos).
+        3. Identify hidden connections and abstract relationships.
+        4. Map the digital footprint across 5 temporal dimensions (past activity to future probability).
+        
+        Return a structured JSON response:
+        {
+          "psychographic_profile": "Detailed behavioral analysis",
+          "correlations": ["List of connected accounts/platforms"],
+          "hidden_nodes": ["Abstract connections found"],
+          "risk_assessment": "Quantum probability of threat (0-100)",
+          "temporal_footprint": "Analysis of activity over time",
+          "findings": ["Specific actionable intelligence points"]
+        }
+      `,
+      config: {
+        responseMimeType: "application/json",
+      },
+    });
+
+    if (!response?.text) throw new Error("Empty response from AI");
+    const text = response.text.replace(/```json\n?|```/g, '').trim();
+    return JSON.parse(text);
+  } catch (e: any) {
+    console.error("Advanced OSINT Error:", e);
+    return { error: e.message || "Advanced OSINT failed", raw: e.toString() };
+  }
+}
+
+export async function analyzeAdvancedEvasion(payload: string) {
+  try {
+    const response = await callGeminiWithRetry({
+      model: "gemini-3.1-pro-preview",
+      contents: `
+        SECURITY AUDIT: ADVANCED EVASION DETECTION
+        ANALYZE PAYLOAD: ${payload}
+        
+        Check for the following advanced techniques:
+        1. Polymorphic/Metamorphic code structures.
+        2. Anti-Debugging (IsDebuggerPresent, timing checks).
+        3. Anti-VM/Anti-Sandbox (Artifact detection, registry checks).
+        4. Process Injection (DLL injection, Process Hollowing).
+        5. Covert Communication (DNS/ICMP Tunneling, Steganography).
+        
+        Return a structured JSON response:
+        {
+          "evasion_score": 0-100,
+          "techniques_detected": ["List of techniques"],
+          "stealth_rating": "Low/Medium/High/Extreme",
+          "analysis_details": "Detailed technical breakdown",
+          "mitigation": "How to detect and block this specific evasion"
+        }
+      `,
+      config: {
+        responseMimeType: "application/json",
+      },
+    });
+
+    if (!response?.text) throw new Error("Empty response from AI");
+    const text = response.text.replace(/```json\n?|```/g, '').trim();
+    return JSON.parse(text);
+  } catch (e: any) {
+    console.error("Evasion Analysis Error:", e);
+    return { error: e.message || "Evasion analysis failed", raw: e.toString() };
+  }
 }
 
 export async function performOSINT(domain: string) {
