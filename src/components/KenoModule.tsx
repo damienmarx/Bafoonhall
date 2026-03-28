@@ -1,10 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Shield, Zap, Target, Lock, Unlock, RefreshCw, AlertCircle, History, Loader2 } from 'lucide-react';
-import { db, auth, useWebSocket, handleFirestoreError, OperationType } from '../lib/firebase';
+import { Shield, Zap, Target, Lock, Unlock, RefreshCw, AlertCircle, History, Loader2, AlertTriangle, Key } from 'lucide-react';
+import { db, auth, useWebSocket, handleFirestoreError, OperationType, useAuth } from '../lib/firebase';
 import { collection, addDoc, query, orderBy, limit, onSnapshot, serverTimestamp } from 'firebase/firestore';
-import { GoogleGenAI } from "@google/genai";
-
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+import { auditKenoSeed } from '../lib/gemini';
 
 export function KenoModule() {
   const [isCracking, setIsCracking] = useState(false);
@@ -15,9 +13,12 @@ export function KenoModule() {
   const [history, setHistory] = useState<any[]>([]);
   const [currentSeed, setCurrentSeed] = useState('0x' + Math.random().toString(16).substring(2, 15).toUpperCase());
   const { sendMessage } = useWebSocket();
+  const { user, isAuthReady } = useAuth();
 
   // Load history from Firestore
   useEffect(() => {
+    if (!isAuthReady || !user) return;
+
     const q = query(
       collection(db, 'keno_audits'),
       orderBy('timestamp', 'desc'),
@@ -32,7 +33,7 @@ export function KenoModule() {
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [isAuthReady, user]);
 
   const startCrack = async () => {
     setIsCracking(true);
@@ -52,20 +53,12 @@ export function KenoModule() {
 
     try {
       // Real AI Analysis of the "seed"
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: `Analyze this Keno RNG seed for cryptographic weaknesses: ${currentSeed}. 
-        Provide a JSON response with:
-        1. entropy_score (0-100)
-        2. vulnerability_type
-        3. predicted_numbers (array of 8 numbers between 1-40)
-        4. technical_finding
-        5. impact_assessment
-        6. mitigation_steps`,
-        config: { responseMimeType: "application/json" }
-      });
+      const result = await auditKenoSeed(currentSeed);
+      
+      if (result.error) {
+        throw new Error(result.error === 'RATE_LIMIT_EXCEEDED' || result.error === 'API_KEY_INVALID' ? result.error : "Audit failed");
+      }
 
-      const result = JSON.parse(response.text);
       setAnalysis(result);
       setPrediction(result.predicted_numbers || [7, 15, 23, 32, 38, 12, 28, 4]);
 
@@ -89,8 +82,20 @@ export function KenoModule() {
       });
 
       setCracked(true);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Cracking failed:", error);
+      if (error.message === 'RATE_LIMIT_EXCEEDED' || error.message === 'API_KEY_INVALID') {
+        const message = error.message === 'RATE_LIMIT_EXCEEDED' 
+          ? "You've hit the free tier rate limit. Please upgrade your API key in the header to continue."
+          : "Your selected API key is invalid. Please re-select a valid key in the header.";
+        
+        setAnalysis({
+          error: message,
+          isQuotaError: true
+        });
+      } else {
+        setAnalysis({ error: "Audit failed. Please try again later." });
+      }
     } finally {
       setIsCracking(false);
     }
@@ -178,23 +183,42 @@ export function KenoModule() {
           </div>
 
           {analysis && (
-            <div className="border border-ink p-6 bg-ink text-bg">
-              <h3 className="col-header text-bg mb-4">Vulnerability Report: RNG-AUDIT</h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-[10px] font-mono">
-                <div className="space-y-2">
-                  <p className="opacity-50 uppercase">Finding</p>
-                  <p>{analysis.technical_finding}</p>
+            analysis.error ? (
+              <div className={`border-l-4 p-6 ${analysis.isQuotaError ? 'bg-yellow-50 border-yellow-600' : 'bg-red-50 border-red-600'}`}>
+                <div className="flex items-center gap-2 mb-2">
+                  <AlertTriangle className={`w-5 h-5 ${analysis.isQuotaError ? 'text-yellow-600' : 'text-red-600'}`} />
+                  <p className="font-bold text-sm uppercase">{analysis.isQuotaError ? 'Quota Exceeded' : 'Audit Error'}</p>
                 </div>
-                <div className="space-y-2">
-                  <p className="opacity-50 uppercase">Impact</p>
-                  <p className="text-red-400">{analysis.impact_assessment}</p>
-                </div>
-                <div className="space-y-2">
-                  <p className="opacity-50 uppercase">Mitigation</p>
-                  <p className="text-green-400">{analysis.mitigation_steps}</p>
+                <p className="text-xs opacity-80 leading-relaxed mb-4">{analysis.error}</p>
+                {analysis.isQuotaError && (
+                  <button 
+                    onClick={() => window.aistudio?.openSelectKey?.()}
+                    className="max-w-xs bg-ink text-bg px-6 py-2 text-[10px] font-bold uppercase tracking-widest hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
+                  >
+                    <Key className="w-3 h-3" />
+                    Upgrade API Key
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="border border-ink p-6 bg-ink text-bg">
+                <h3 className="col-header text-bg mb-4">Vulnerability Report: RNG-AUDIT</h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-[10px] font-mono">
+                  <div className="space-y-2">
+                    <p className="opacity-50 uppercase">Finding</p>
+                    <p>{analysis.technical_finding}</p>
+                  </div>
+                  <div className="space-y-2">
+                    <p className="opacity-50 uppercase">Impact</p>
+                    <p className="text-red-400">{analysis.impact_assessment}</p>
+                  </div>
+                  <div className="space-y-2">
+                    <p className="opacity-50 uppercase">Mitigation</p>
+                    <p className="text-green-400">{analysis.mitigation_steps}</p>
+                  </div>
                 </div>
               </div>
-            </div>
+            )
           )}
         </div>
 

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Globe, Server, Share2, Mail, ShieldCheck, Loader2, Download, History } from 'lucide-react';
+import { Search, Globe, Server, Share2, Mail, ShieldCheck, Loader2, Download, History, AlertTriangle, Key } from 'lucide-react';
 import { performOSINT } from '../lib/gemini';
-import { db, auth, useWebSocket, handleFirestoreError, OperationType } from '../lib/firebase';
+import { db, auth, useWebSocket, handleFirestoreError, OperationType, useAuth } from '../lib/firebase';
 import { collection, addDoc, query, orderBy, limit, onSnapshot, serverTimestamp } from 'firebase/firestore';
 
 export function OSINTModule() {
@@ -9,9 +9,12 @@ export function OSINTModule() {
   const [data, setData] = useState<any>(null);
   const [history, setHistory] = useState<any[]>([]);
   const { sendMessage } = useWebSocket();
+  const { user, isAuthReady } = useAuth();
 
   // Load history from Firestore
   useEffect(() => {
+    if (!isAuthReady || !user) return;
+
     const q = query(
       collection(db, 'osint_scans'),
       orderBy('timestamp', 'desc'),
@@ -26,7 +29,7 @@ export function OSINTModule() {
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [isAuthReady, user]);
 
   const runScan = async () => {
     setLoading(true);
@@ -57,8 +60,20 @@ export function OSINTModule() {
           timestamp: new Date().toISOString()
         }
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Scan failed:", error);
+      if (error.message === 'RATE_LIMIT_EXCEEDED' || error.message === 'API_KEY_INVALID') {
+        const message = error.message === 'RATE_LIMIT_EXCEEDED' 
+          ? "You've hit the free tier rate limit. Please upgrade your API key in the header to continue."
+          : "Your selected API key is invalid. Please re-select a valid key in the header.";
+        
+        setData({
+          error: message,
+          isQuotaError: true
+        });
+      } else {
+        setData({ error: "Scan failed. Please try again later." });
+      }
     } finally {
       setLoading(false);
     }
@@ -143,8 +158,26 @@ export function OSINTModule() {
           )}
 
           {data && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Infrastructure */}
+            data.error ? (
+              <div className={`p-6 border-l-4 ${data.isQuotaError ? 'bg-yellow-50 border-yellow-600' : 'bg-red-50 border-red-600'}`}>
+                <div className="flex items-center gap-2 mb-2">
+                  <AlertTriangle className={`w-5 h-5 ${data.isQuotaError ? 'text-yellow-600' : 'text-red-600'}`} />
+                  <p className="font-bold text-sm uppercase">{data.isQuotaError ? 'Quota Exceeded' : 'Scan Error'}</p>
+                </div>
+                <p className="text-xs opacity-80 leading-relaxed mb-4">{data.error}</p>
+                {data.isQuotaError && (
+                  <button 
+                    onClick={() => window.aistudio?.openSelectKey?.()}
+                    className="max-w-xs bg-ink text-bg px-6 py-2 text-[10px] font-bold uppercase tracking-widest hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
+                  >
+                    <Key className="w-3 h-3" />
+                    Upgrade API Key
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Infrastructure */}
               <div className="border border-ink p-6 bg-white shadow-sm">
                 <div className="flex items-center gap-2 mb-4">
                   <Server className="w-5 h-5" />
@@ -206,7 +239,8 @@ export function OSINTModule() {
                 </div>
               </div>
             </div>
-          )}
+          )
+        )}
 
           {!data && !loading && (
             <div className="flex flex-col items-center justify-center py-20 opacity-20">

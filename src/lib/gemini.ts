@@ -1,24 +1,45 @@
 import { GoogleGenAI } from "@google/genai";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+// Helper to get the API key and initialize GoogleGenAI
+async function getAIInstance() {
+  // Use process.env.API_KEY if available (this is what the platform injects after selection)
+  // Fallback to process.env.GEMINI_API_KEY (the default key)
+  const apiKey = process.env.API_KEY || process.env.GEMINI_API_KEY;
+  return new GoogleGenAI({ apiKey });
+}
 
 async function callGeminiWithRetry(params: any, maxRetries = 3) {
   let retries = 0;
   while (retries < maxRetries) {
     try {
+      const ai = await getAIInstance();
       return await ai.models.generateContent(params);
     } catch (error: any) {
+      const errorStr = JSON.stringify(error).toLowerCase();
+      const errorMessage = (error.message || "").toLowerCase();
       const isRateLimit = 
-        error.message?.includes("429") || 
-        error.status === "RESOURCE_EXHAUSTED" ||
-        JSON.stringify(error).includes("429");
+        errorMessage.includes("429") || 
+        errorMessage.includes("resource_exhausted") ||
+        errorStr.includes("429") ||
+        errorStr.includes("resource_exhausted") ||
+        error.status === "RESOURCE_EXHAUSTED";
 
       if (isRateLimit) {
+        // If we hit a rate limit, we should check if the user has selected a key.
+        // If not, we might want to inform them, but for now, we'll just retry with backoff.
         retries++;
-        if (retries === maxRetries) throw error;
+        if (retries === maxRetries) {
+          // On the last retry, if it's still a 429, we throw a special error
+          // that the UI can catch to prompt for an API key.
+          throw new Error("RATE_LIMIT_EXCEEDED");
+        }
         const delay = Math.pow(2, retries) * 2000 + Math.random() * 1000;
         console.warn(`Rate limited (429). Retry ${retries}/${maxRetries} in ${Math.round(delay)}ms...`);
         await new Promise(resolve => setTimeout(resolve, delay));
+      } else if (error.message?.includes("Requested entity was not found")) {
+        // This error can occur if the API key is invalid or the project is not found.
+        // The instructions say to reset the key selection state and prompt for a key.
+        throw new Error("API_KEY_INVALID");
       } else {
         throw error;
       }
@@ -107,5 +128,30 @@ export async function correlateUsernames(username: string) {
   } catch (e: any) {
     console.error("Correlation Error:", e);
     return { error: e.message || "Correlation failed", raw: e.toString() };
+  }
+}
+
+export async function auditKenoSeed(seed: string) {
+  try {
+    const response = await callGeminiWithRetry({
+      model: "gemini-3-flash-preview",
+      contents: `Analyze this Keno RNG seed for cryptographic weaknesses: ${seed}. 
+      Provide a JSON response with:
+      1. entropy_score (0-100)
+      2. vulnerability_type
+      3. predicted_numbers (array of 8 numbers between 1-40)
+      4. technical_finding
+      5. impact_assessment
+      6. mitigation_steps`,
+      config: { responseMimeType: "application/json" }
+    });
+
+    if (!response?.text) throw new Error("Empty response from AI");
+
+    const text = response.text.replace(/```json\n?|```/g, '').trim();
+    return JSON.parse(text);
+  } catch (e: any) {
+    console.error("Keno Audit Error:", e);
+    return { error: e.message || "Keno audit failed", raw: e.toString() };
   }
 }

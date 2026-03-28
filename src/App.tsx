@@ -3,20 +3,67 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
-import { Shield, Search, User, Terminal, AlertTriangle, Activity, Globe, MessageSquare, HelpCircle } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Shield, Search, User, Terminal, AlertTriangle, Activity, Globe, MessageSquare, HelpCircle, Key } from 'lucide-react';
+
+// Extend window object for aistudio
+declare global {
+  interface Window {
+    aistudio: {
+      hasSelectedApiKey: () => Promise<boolean>;
+      openSelectKey: () => Promise<void>;
+    };
+  }
+}
 import { OSINTModule } from './components/OSINTModule';
 import { SecurityModule } from './components/SecurityModule';
 import { IdentityModule } from './components/IdentityModule';
 import { KenoModule } from './components/KenoModule';
 import { InterceptorModule } from './components/InterceptorModule';
 import { HelpModule } from './components/HelpModule';
+import { auth, googleProvider, useAuth } from './lib/firebase';
+import { signInWithPopup, signOut } from 'firebase/auth';
 
 type Tab = 'OSINT' | 'SECURITY' | 'IDENTITY' | 'OVERVIEW' | 'KENO' | 'INTERCEPTOR' | 'HELP';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>('OVERVIEW');
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [hasKey, setHasKey] = useState(false);
+  const { user, isAuthReady } = useAuth();
+
+  const handleLogin = async () => {
+    try {
+      await signInWithPopup(auth, googleProvider);
+    } catch (error) {
+      console.error('Login failed:', error);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+    } catch (error) {
+      console.error('Logout failed:', error);
+    }
+  };
+
+  useEffect(() => {
+    const checkKey = async () => {
+      if (window.aistudio?.hasSelectedApiKey) {
+        const selected = await window.aistudio.hasSelectedApiKey();
+        setHasKey(selected);
+      }
+    };
+    checkKey();
+  }, []);
+
+  const handleSelectKey = async () => {
+    if (window.aistudio?.openSelectKey) {
+      await window.aistudio.openSelectKey();
+      setHasKey(true);
+    }
+  };
 
   const navItems: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: 'OVERVIEW', label: 'OVERVIEW', icon: <Activity className="w-4 h-4" /> },
@@ -41,6 +88,25 @@ export default function App() {
             <span>STATUS: ACTIVE</span>
             <span>DOMAIN: RUNEHALL.COM</span>
           </div>
+          <div className="flex items-center gap-4 border-l border-bg/20 pl-4">
+            {isAuthReady && (
+              user ? (
+                <div className="flex items-center gap-3">
+                  <span className="text-green-400">{user.email}</span>
+                  <button onClick={handleLogout} className="hover:text-white transition-colors">LOGOUT</button>
+                </div>
+              ) : (
+                <button onClick={handleLogin} className="text-yellow-400 hover:text-white transition-colors">LOGIN</button>
+              )
+            )}
+          </div>
+          <button 
+            onClick={handleSelectKey}
+            className={`flex items-center gap-1 transition-colors border-l border-bg/20 pl-4 ${hasKey ? 'text-green-400' : 'text-yellow-400 hover:text-white'}`}
+          >
+            <Key className="w-4 h-4" />
+            {hasKey ? 'API KEY ACTIVE' : 'UPGRADE API KEY'}
+          </button>
           <button 
             onClick={() => setActiveTab('HELP')}
             className="flex items-center gap-1 hover:text-white transition-colors border-l border-bg/20 pl-4"

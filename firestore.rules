@@ -60,8 +60,9 @@ service cloud.firestore {
       return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
     }
 
-    function isValidDateString(dateStr) {
-      return dateStr is string && dateStr.matches("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.*Z?$");
+    function isValidDate(date) {
+      return (date is string && date.matches("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.*Z?$")) ||
+             (date is timestamp);
     }
 
     // ===============================================================
@@ -69,7 +70,7 @@ service cloud.firestore {
     // ===============================================================
     function isValidOSINTScan(data) {
       return data.domain is string && data.domain.size() > 0 && data.domain.size() < 255 &&
-             isValidDateString(data.timestamp);
+             isValidDate(data.timestamp);
     }
 
     function isValidSecurityFinding(data) {
@@ -78,13 +79,18 @@ service cloud.firestore {
              data.potential_impact is string &&
              data.mitigation_strategy is string &&
              data.raw_payload is string &&
-             isValidDateString(data.timestamp) &&
+             isValidDate(data.timestamp) &&
              data.uid == request.auth.uid;
     }
 
     function isValidIdentityCorrelation(data) {
       return data.username is string && data.username.size() > 0 &&
-             isValidDateString(data.timestamp);
+             isValidDate(data.timestamp);
+    }
+
+    function isValidKenoAudit(data) {
+      return data.seed is string && data.seed.size() > 0 &&
+             isValidDate(data.timestamp);
     }
 
     // ===============================================================
@@ -115,7 +121,7 @@ service cloud.firestore {
     // Keno Audits: Publicly readable by authenticated users
     match /keno_audits/{auditId} {
       allow read: if isAuthenticated();
-      allow create: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidKenoAudit(request.resource.data);
       allow update, delete: if isAdmin();
     }
 

@@ -106,6 +106,22 @@ export function useWebSocket() {
   return { sendMessage, lastMessage };
 }
 
+// Auth Hook
+export function useAuth() {
+  const [user, setUser] = useState(auth.currentUser);
+  const [isAuthReady, setIsAuthReady] = useState(false);
+
+  useEffect(() => {
+    const unsubscribe = auth.onAuthStateChanged((u) => {
+      setUser(u);
+      setIsAuthReady(true);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  return { user, isAuthReady };
+}
+
 // Test connection
 async function testConnection() {
   try {

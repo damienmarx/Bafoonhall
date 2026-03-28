@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { MessageSquare, ShieldAlert, Code, AlertCircle, Loader2, Send, Download, History, Zap } from 'lucide-react';
+import { MessageSquare, ShieldAlert, Code, AlertCircle, Loader2, Send, Download, History, Zap, AlertTriangle, Key } from 'lucide-react';
 import { analyzeVulnerability } from '../lib/gemini';
-import { db, auth, useWebSocket, handleFirestoreError, OperationType } from '../lib/firebase';
+import { db, auth, useWebSocket, handleFirestoreError, OperationType, useAuth } from '../lib/firebase';
 import { collection, addDoc, query, orderBy, limit, onSnapshot, serverTimestamp, where } from 'firebase/firestore';
 
 const TEST_VECTORS = [
@@ -31,14 +31,15 @@ export function SecurityModule() {
   const [customPayload, setCustomPayload] = useState('');
   const [history, setHistory] = useState<any[]>([]);
   const { sendMessage, lastMessage } = useWebSocket();
+  const { user, isAuthReady } = useAuth();
 
   // Load history from Firestore
   useEffect(() => {
-    if (!auth.currentUser) return;
+    if (!isAuthReady || !user) return;
 
     const q = query(
       collection(db, 'security_findings'),
-      where('uid', '==', auth.currentUser.uid),
+      where('uid', '==', user.uid),
       orderBy('timestamp', 'desc'),
       limit(10)
     );
@@ -51,7 +52,7 @@ export function SecurityModule() {
     });
 
     return () => unsubscribe();
-  }, [auth.currentUser]);
+  }, [isAuthReady, user]);
 
   // Handle real-time updates from other clients
   useEffect(() => {
@@ -92,8 +93,20 @@ export function SecurityModule() {
         }
       });
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('Analysis failed:', error);
+      if (error.message === 'RATE_LIMIT_EXCEEDED' || error.message === 'API_KEY_INVALID') {
+        const message = error.message === 'RATE_LIMIT_EXCEEDED' 
+          ? "You've hit the free tier rate limit. Please upgrade your API key in the header to continue."
+          : "Your selected API key is invalid. Please re-select a valid key in the header.";
+        
+        setAnalysis({
+          error: message,
+          isQuotaError: true
+        });
+      } else {
+        setAnalysis({ error: "Analysis failed. Please try again later." });
+      }
     } finally {
       setLoading(false);
     }
@@ -205,29 +218,50 @@ export function SecurityModule() {
 
           {analysis && !loading && (
             <div className="space-y-4">
-              <div className={`p-3 border-l-4 ${
-                analysis.severity === 'Critical' ? 'bg-red-50 border-red-600' :
-                analysis.severity === 'High' ? 'bg-orange-50 border-orange-600' :
-                'bg-yellow-50 border-yellow-600'
-              }`}>
-                <p className="text-[10px] uppercase opacity-50">Severity: {analysis.severity}</p>
-                <p className="font-bold text-sm">{analysis.vulnerability_type}</p>
-              </div>
+              {analysis.error ? (
+                <div className={`p-4 border-l-4 ${analysis.isQuotaError ? 'bg-yellow-50 border-yellow-600' : 'bg-red-50 border-red-600'}`}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <AlertTriangle className={`w-5 h-5 ${analysis.isQuotaError ? 'text-yellow-600' : 'text-red-600'}`} />
+                    <p className="font-bold text-sm uppercase">{analysis.isQuotaError ? 'Quota Exceeded' : 'Analysis Error'}</p>
+                  </div>
+                  <p className="text-xs opacity-80 leading-relaxed mb-4">{analysis.error}</p>
+                  {analysis.isQuotaError && (
+                    <button 
+                      onClick={() => window.aistudio?.openSelectKey?.()}
+                      className="w-full bg-ink text-bg py-2 text-[10px] font-bold uppercase tracking-widest hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
+                    >
+                      <Key className="w-3 h-3" />
+                      Upgrade API Key
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <>
+                  <div className={`p-3 border-l-4 ${
+                    analysis.severity === 'Critical' ? 'bg-red-50 border-red-600' :
+                    analysis.severity === 'High' ? 'bg-orange-50 border-orange-600' :
+                    'bg-yellow-50 border-yellow-600'
+                  }`}>
+                    <p className="text-[10px] uppercase opacity-50">Severity: {analysis.severity}</p>
+                    <p className="font-bold text-sm">{analysis.vulnerability_type}</p>
+                  </div>
 
-              <div>
-                <h4 className="text-xs font-bold uppercase mb-1">Impact</h4>
-                <p className="text-xs opacity-80 leading-relaxed">{analysis.potential_impact}</p>
-              </div>
+                  <div>
+                    <h4 className="text-xs font-bold uppercase mb-1">Impact</h4>
+                    <p className="text-xs opacity-80 leading-relaxed">{analysis.potential_impact}</p>
+                  </div>
 
-              <div>
-                <h4 className="text-xs font-bold uppercase mb-1">Mitigation</h4>
-                <p className="text-xs opacity-80 leading-relaxed">{analysis.mitigation_strategy}</p>
-              </div>
+                  <div>
+                    <h4 className="text-xs font-bold uppercase mb-1">Mitigation</h4>
+                    <p className="text-xs opacity-80 leading-relaxed">{analysis.mitigation_strategy}</p>
+                  </div>
 
-              <div className="terminal-card mt-4">
-                <p className="text-[10px] mb-2 border-b border-green-900/30 pb-1">PAYLOAD_SOURCE</p>
-                <code className="text-xs break-all">{analysis.raw_payload || 'N/A'}</code>
-              </div>
+                  <div className="terminal-card mt-4">
+                    <p className="text-[10px] mb-2 border-b border-green-900/30 pb-1">PAYLOAD_SOURCE</p>
+                    <code className="text-xs break-all">{analysis.raw_payload || 'N/A'}</code>
+                  </div>
+                </>
+              )}
             </div>
           )}
 
