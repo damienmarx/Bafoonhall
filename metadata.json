@@ -1,0 +1,5 @@
+{
+  "name": "Runehall Security Audit Suite",
+  "description": "Professional-grade OSINT, CSS/XSS vulnerability testing, and identity correlation dashboard for runehall.com.",
+  "requestFramePermissions": ["geolocation"]
+}
