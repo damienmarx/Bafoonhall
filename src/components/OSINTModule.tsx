@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Globe, Server, Share2, Mail, ShieldCheck, Loader2 } from 'lucide-react';
+import { Search, Globe, Server, Share2, Mail, ShieldCheck, Loader2, Download } from 'lucide-react';
 import { performOSINT } from '../lib/gemini';
 
 export function OSINTModule() {
@@ -13,6 +13,45 @@ export function OSINTModule() {
     setLoading(false);
   };
 
+  const handleExport = () => {
+    if (!data) return;
+
+    const rows = [];
+    
+    // Add Subdomains
+    if (data.subdomains) {
+      data.subdomains.forEach((sub: string) => {
+        rows.push(['Subdomain', sub, 'Active']);
+      });
+    }
+
+    // Add Social Profiles
+    if (data.social_profiles) {
+      data.social_profiles.forEach((profile: any) => {
+        rows.push(['Social Profile', profile.platform, profile.handle, profile.url]);
+      });
+    }
+
+    // Add Tech Stack
+    if (data.tech_stack) {
+      data.tech_stack.forEach((tech: any) => {
+        rows.push(['Technology', tech.category, tech.name]);
+      });
+    }
+
+    const csvContent = "data:text/csv;charset=utf-8," 
+      + ["Type", "Name/Platform", "Detail/Handle", "URL"].join(",") + "\n"
+      + rows.map(e => e.join(",")).join("\n");
+
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `runehall_osint_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center border-b border-ink pb-4">
@@ -20,14 +59,25 @@ export function OSINTModule() {
           <h2 className="text-xl font-bold tracking-tight">OSINT ANALYSIS</h2>
           <p className="text-xs opacity-60">Open Source Intelligence gathering for runehall.com</p>
         </div>
-        <button 
-          onClick={runScan}
-          disabled={loading}
-          className="bg-ink text-bg px-4 py-2 text-sm font-bold flex items-center gap-2 hover:opacity-90 disabled:opacity-50"
-        >
-          {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-          RUN FULL SCAN
-        </button>
+        <div className="flex gap-2">
+          {data && (
+            <button 
+              onClick={handleExport}
+              className="bg-bg border border-ink text-ink px-4 py-2 text-sm font-bold flex items-center gap-2 hover:bg-ink hover:text-bg transition-colors"
+            >
+              <Download className="w-4 h-4" />
+              EXPORT CSV
+            </button>
+          )}
+          <button 
+            onClick={runScan}
+            disabled={loading}
+            className="bg-ink text-bg px-4 py-2 text-sm font-bold flex items-center gap-2 hover:opacity-90 disabled:opacity-50"
+          >
+            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+            RUN FULL SCAN
+          </button>
+        </div>
       </div>
 
       {loading && (

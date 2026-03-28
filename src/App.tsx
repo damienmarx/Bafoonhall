@@ -4,14 +4,15 @@
  */
 
 import React, { useState } from 'react';
-import { Shield, Search, User, Terminal, AlertTriangle, Activity, Globe, MessageSquare } from 'lucide-react';
+import { Shield, Search, User, Terminal, AlertTriangle, Activity, Globe, MessageSquare, HelpCircle } from 'lucide-react';
 import { OSINTModule } from './components/OSINTModule';
 import { SecurityModule } from './components/SecurityModule';
 import { IdentityModule } from './components/IdentityModule';
 import { KenoModule } from './components/KenoModule';
 import { InterceptorModule } from './components/InterceptorModule';
+import { HelpModule } from './components/HelpModule';
 
-type Tab = 'OSINT' | 'SECURITY' | 'IDENTITY' | 'OVERVIEW' | 'KENO' | 'INTERCEPTOR';
+type Tab = 'OSINT' | 'SECURITY' | 'IDENTITY' | 'OVERVIEW' | 'KENO' | 'INTERCEPTOR' | 'HELP';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>('OVERVIEW');
@@ -24,6 +25,7 @@ export default function App() {
     { id: 'IDENTITY', label: 'IDENTITY', icon: <User className="w-4 h-4" /> },
     { id: 'KENO', label: 'KENO AUDIT', icon: <Shield className="w-4 h-4" /> },
     { id: 'INTERCEPTOR', label: 'LIVE WIRE', icon: <Terminal className="w-4 h-4" /> },
+    { id: 'HELP', label: 'HELP / DOCS', icon: <HelpCircle className="w-4 h-4" /> },
   ];
 
   return (
@@ -34,9 +36,18 @@ export default function App() {
           <Shield className="w-6 h-6 md:w-8 md:h-8" />
           <h1 className="text-lg md:text-2xl font-bold tracking-tighter uppercase italic serif truncate">Runehall Audit</h1>
         </div>
-        <div className="hidden md:flex items-center gap-4 text-xs font-mono opacity-70">
-          <span>STATUS: ACTIVE</span>
-          <span>DOMAIN: RUNEHALL.COM</span>
+        <div className="hidden md:flex items-center gap-6 text-xs font-mono opacity-70">
+          <div className="flex items-center gap-4">
+            <span>STATUS: ACTIVE</span>
+            <span>DOMAIN: RUNEHALL.COM</span>
+          </div>
+          <button 
+            onClick={() => setActiveTab('HELP')}
+            className="flex items-center gap-1 hover:text-white transition-colors border-l border-bg/20 pl-4"
+          >
+            <HelpCircle className="w-4 h-4" />
+            HELP
+          </button>
         </div>
         <button 
           className="md:hidden p-2 border border-bg/20 rounded"
@@ -165,6 +176,7 @@ export default function App() {
         {activeTab === 'IDENTITY' && <IdentityModule />}
         {activeTab === 'KENO' && <KenoModule />}
         {activeTab === 'INTERCEPTOR' && <InterceptorModule />}
+        {activeTab === 'HELP' && <HelpModule />}
       </main>
 
       {/* Footer */}

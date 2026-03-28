@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { MessageSquare, ShieldAlert, Code, AlertCircle, Loader2, Send } from 'lucide-react';
+import { MessageSquare, ShieldAlert, Code, AlertCircle, Loader2, Send, Download } from 'lucide-react';
 import { analyzeVulnerability } from '../lib/gemini';
 
 const TEST_VECTORS = [
@@ -19,8 +19,33 @@ export function SecurityModule() {
   const runAnalysis = async (payload: string) => {
     setLoading(true);
     const results = await analyzeVulnerability(payload, 'Chat Box Input');
-    setAnalysis(results);
+    setAnalysis({ ...results, raw_payload: payload });
     setLoading(false);
+  };
+
+  const handleExport = () => {
+    if (!analysis) return;
+
+    const headers = ["Vulnerability Type", "Severity", "Impact", "Mitigation", "Payload"];
+    const row = [
+      analysis.vulnerability_type || 'N/A',
+      analysis.severity || 'N/A',
+      `"${(analysis.potential_impact || 'N/A').replace(/"/g, '""')}"`,
+      `"${(analysis.mitigation_strategy || 'N/A').replace(/"/g, '""')}"`,
+      `"${(analysis.raw_payload || 'N/A').replace(/"/g, '""')}"`
+    ];
+
+    const csvContent = "data:text/csv;charset=utf-8," 
+      + headers.join(",") + "\n"
+      + row.join(",");
+
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `security_analysis_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   return (
@@ -30,7 +55,18 @@ export function SecurityModule() {
           <h2 className="text-xl font-bold tracking-tight uppercase italic serif">CHAT BOX VULNERABILITY TESTING</h2>
           <p className="text-xs opacity-60">Testing CSS and XSS potential for runehall.com chat modules</p>
         </div>
-        <ShieldAlert className="w-8 h-8 text-red-600" />
+        <div className="flex items-center gap-4">
+          {analysis && !loading && (
+            <button 
+              onClick={handleExport}
+              className="bg-bg border border-ink text-ink px-3 py-1.5 text-[10px] font-bold flex items-center gap-2 hover:bg-ink hover:text-bg transition-colors"
+            >
+              <Download className="w-3 h-3" />
+              EXPORT CSV
+            </button>
+          )}
+          <ShieldAlert className="w-8 h-8 text-red-600" />
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
