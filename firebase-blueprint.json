@@ -1,0 +1,107 @@
+{
+  "entities": {
+    "osint_scan": {
+      "title": "OSINT Scan",
+      "description": "Results of an OSINT scan for a domain",
+      "type": "object",
+      "properties": {
+        "domain": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "subdomains": { "type": "array", "items": { "type": "string" } },
+        "social_profiles": { 
+          "type": "array", 
+          "items": { 
+            "type": "object",
+            "properties": {
+              "platform": { "type": "string" },
+              "handle": { "type": "string" },
+              "url": { "type": "string" }
+            }
+          }
+        },
+        "tech_stack": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "category": { "type": "string" },
+              "name": { "type": "string" }
+            }
+          }
+        }
+      },
+      "required": ["domain", "timestamp"]
+    },
+    "security_finding": {
+      "title": "Security Finding",
+      "description": "A vulnerability analysis result",
+      "type": "object",
+      "properties": {
+        "vulnerability_type": { "type": "string" },
+        "severity": { "type": "string", "enum": ["Low", "Medium", "High", "Critical"] },
+        "potential_impact": { "type": "string" },
+        "mitigation_strategy": { "type": "string" },
+        "raw_payload": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "uid": { "type": "string" }
+      },
+      "required": ["vulnerability_type", "severity", "timestamp", "uid"]
+    },
+    "identity_correlation": {
+      "title": "Identity Correlation",
+      "description": "Mapped identity across platforms",
+      "type": "object",
+      "properties": {
+        "username": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "profiles": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "platform": { "type": "string" },
+              "handle": { "type": "string" },
+              "url": { "type": "string" },
+              "activity": { "type": "string" }
+            }
+          }
+        }
+      },
+      "required": ["username", "timestamp"]
+    },
+    "keno_audit": {
+      "title": "Keno Audit",
+      "description": "Results of a Keno RNG seed audit",
+      "type": "object",
+      "properties": {
+        "seed": { "type": "string" },
+        "entropy_score": { "type": "number" },
+        "vulnerability_type": { "type": "string" },
+        "technical_finding": { "type": "string" },
+        "impact_assessment": { "type": "string" },
+        "mitigation_steps": { "type": "string" },
+        "predicted_numbers": { "type": "array", "items": { "type": "number" } },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["seed", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/osint_scans/{scanId}": {
+      "schema": "osint_scan",
+      "description": "Publicly available OSINT scan results"
+    },
+    "/security_findings/{findingId}": {
+      "schema": "security_finding",
+      "description": "User-specific security vulnerability findings"
+    },
+    "/identity_correlations/{correlationId}": {
+      "schema": "identity_correlation",
+      "description": "Identity mapping results"
+    },
+    "/keno_audits/{auditId}": {
+      "schema": "keno_audit",
+      "description": "Keno RNG seed audit results"
+    }
+  }
+}

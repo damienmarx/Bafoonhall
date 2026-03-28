@@ -1,0 +1,129 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: osint_scans
+    // Fields:
+    //   - domain: string (required)
+    //   - timestamp: string (required, ISO 8601)
+    //   - subdomains: list (optional)
+    //   - social_profiles: list (optional)
+    //   - tech_stack: list (optional)
+    //
+    // Collection: security_findings
+    // Fields:
+    //   - vulnerability_type: string (required)
+    //   - severity: string (required, enum: Low, Medium, High, Critical)
+    //   - potential_impact: string (required)
+    //   - mitigation_strategy: string (required)
+    //   - raw_payload: string (required)
+    //   - timestamp: string (required, ISO 8601)
+    //   - uid: string (required)
+    //
+    // Collection: identity_correlations
+    // Fields:
+    //   - username: string (required)
+    //   - timestamp: string (required, ISO 8601)
+    //   - profiles: list (optional)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.uid;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          (request.auth.token.email == "damienbmk@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function isValidDateString(dateStr) {
+      return dateStr is string && dateStr.matches("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.*Z?$");
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+    function isValidOSINTScan(data) {
+      return data.domain is string && data.domain.size() > 0 && data.domain.size() < 255 &&
+             isValidDateString(data.timestamp);
+    }
+
+    function isValidSecurityFinding(data) {
+      return data.vulnerability_type is string && data.vulnerability_type.size() > 0 &&
+             data.severity in ['Low', 'Medium', 'High', 'Critical'] &&
+             data.potential_impact is string &&
+             data.mitigation_strategy is string &&
+             data.raw_payload is string &&
+             isValidDateString(data.timestamp) &&
+             data.uid == request.auth.uid;
+    }
+
+    function isValidIdentityCorrelation(data) {
+      return data.username is string && data.username.size() > 0 &&
+             isValidDateString(data.timestamp);
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    // OSINT Scans: Publicly readable by authenticated users, writable by anyone (for now, for the demo)
+    match /osint_scans/{scanId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidOSINTScan(request.resource.data);
+      allow update, delete: if isAdmin();
+    }
+
+    // Security Findings: Private to the user who created them
+    match /security_findings/{findingId} {
+      allow read: if isAuthenticated() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated() && isValidSecurityFinding(request.resource.data);
+      allow update, delete: if isAuthenticated() && (resource.data.uid == request.auth.uid || isAdmin());
+    }
+
+    // Identity Correlations: Publicly readable by authenticated users
+    match /identity_correlations/{correlationId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidIdentityCorrelation(request.resource.data);
+      allow update, delete: if isAdmin();
+    }
+
+    // Keno Audits: Publicly readable by authenticated users
+    match /keno_audits/{auditId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update, delete: if isAdmin();
+    }
+
+    // Users collection for RBAC
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isAuthenticated() && (isOwner(userId) && request.resource.data.role == 'user') || isAdmin();
+      allow update: if isAuthenticated() && (isOwner(userId) && request.resource.data.role == resource.data.role) || isAdmin();
+    }
+  }
+}
